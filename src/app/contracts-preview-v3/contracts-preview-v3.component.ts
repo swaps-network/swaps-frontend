@@ -1,5 +1,4 @@
 import {Component, OnDestroy, OnInit, TemplateRef, ViewChild} from '@angular/core';
-import {IContract} from '../contract-form/contract-form.component';
 import {ActivatedRoute} from '@angular/router';
 
 import {DomSanitizer, SafeResourceUrl} from '@angular/platform-browser';
@@ -57,8 +56,17 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
 
     this.rateFormat = {groupSeparator: ',', groupSize: 3, decimalSeparator: '.'};
 
-    const baseAmount = new BigNumber(tokenInfo.base.amount).div(Math.pow(10, tokenInfo.base.token.decimals));
-    const quoteAmount = new BigNumber(tokenInfo.quote.amount).div(Math.pow(10, tokenInfo.quote.token.decimals));
+    const baseAmount = new BigNumber(tokenInfo.base.amount);
+    const quoteAmount = new BigNumber(tokenInfo.quote.amount);
+
+    tokenInfo.base.amount = baseAmount.times(Math.pow(10, tokenInfo.base.token.decimals)).toString(10);
+    tokenInfo.quote.amount = quoteAmount.times(Math.pow(10, tokenInfo.quote.token.decimals)).toString(10);
+
+    this.originalContract.min_quote_wei = this.originalContract.min_quote_wei ?
+      new BigNumber(this.originalContract.min_quote_wei).times(Math.pow(10, tokenInfo.quote.token.decimals)).toString(10) : '';
+
+    this.originalContract.min_base_wei = this.originalContract.min_base_wei ?
+      new BigNumber(this.originalContract.min_base_wei).times(Math.pow(10, tokenInfo.base.token.decimals)).toString(10) : '';
 
     this.rates = {
       normal: baseAmount.div(quoteAmount),
@@ -309,34 +317,38 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
     });
   }
 
-
   private checkAuthor() {
     if (this.currentUser) {
       this.originalContract.isAuthor = this.currentUser.id === this.originalContract.user;
     }
   }
 
-
   private getBaseContract() {
     this.contractService.getSwapByPublic(this.originalContract.unique_link).then((result) => {
-      const tokens_info = this.originalContract.tokens_info;
+
+      const tokensInfo = this.originalContract.tokens_info;
       const swapped = this.originalContract.isSwapped;
       const state = this.originalContract.state;
       const contractState = this.originalContract.contract_state;
       const ownerAddress = this.originalContract.owner_address;
       const isAuthor = this.originalContract.isAuthor;
+      const minBase = this.originalContract.min_base_wei;
+      const minQuote = this.originalContract.min_quote_wei;
+
       this.originalContract = result;
-      this.originalContract.tokens_info = tokens_info;
+      this.originalContract.tokens_info = tokensInfo;
       this.originalContract.isSwapped = swapped;
       this.originalContract.state = state;
       this.originalContract.contract_state = contractState;
       this.originalContract.owner_address = ownerAddress;
       this.originalContract.isAuthor = isAuthor;
+      this.originalContract.min_quote_wei = minQuote;
+      this.originalContract.min_base_wei = minBase;
+
     }).finally(() => {
       this.analyzeContract();
     });
   }
-
 
   private getContractInfo() {
     this.checkAuthor();
@@ -358,7 +370,6 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
 
   public sendRefund(token) {
     const details = this.originalContract;
-    // const contract = this.originalContract.eth_contract;
 
     const interfaceMethod = this.web3Service.getMethodInterface('refund', SWAPS_V2.ABI);
     const methodSignature = this.web3Service.encodeFunctionCall(interfaceMethod, [
@@ -396,9 +407,7 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
   }
 
   public sendCancel() {
-
     const details = this.originalContract;
-
     if (!details.isEthereum) {
       this.contractService.cancelSWAP3(details.id).then((result) => {
         console.log(result);
@@ -441,12 +450,10 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
   }
 
   public sendContribute(amount, token) {
-
     if (!this.originalContract.isEthereum) {
       this.openAdministratorInfo();
       return;
     }
-
     try {
       let tokenAddress: any;
 

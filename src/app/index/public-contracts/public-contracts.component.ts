@@ -96,10 +96,28 @@ export class PublicContractsComponent implements OnInit {
         const quoteToken = contract.contract_details.tokens_info.quote.token;
         contract.contract_details.base_token_info = baseToken;
         contract.contract_details.quote_token_info = quoteToken;
+
+
+        // FIXME
+        if (contract.contract_type === 21) {
+          if (new Date(contract.contract_details.created_date).getTime() < new Date(2019, 7, 28, 17, 0).getTime()) {
+            contract.contract_details.base_limit =
+              new BigNumber(contract.contract_details.base_limit).div(Math.pow(10, baseToken.decimals));
+
+            contract.contract_details.quote_limit =
+              new BigNumber(contract.contract_details.quote_limit).div(Math.pow(10, quoteToken.decimals));
+          };
+        }
+
+
         contract.contract_details.base_token_info.amount =
-          new BigNumber(contract.contract_details.base_limit).div(Math.pow(10, baseToken.decimals)).dp(8);
+          new BigNumber(contract.contract_details.base_limit)
+            .div(Math.pow(10, contract.contract_type === 21 ? 0 : baseToken.decimals)).dp(8);
+
         contract.contract_details.quote_token_info.amount =
-          new BigNumber(contract.contract_details.quote_limit).div(Math.pow(10, quoteToken.decimals)).dp(8);
+          new BigNumber(contract.contract_details.quote_limit)
+            .div(Math.pow(10, contract.contract_type === 21 ? 0 : quoteToken.decimals)).dp(8);
+
         this.getRates(contract);
       });
     });
@@ -112,6 +130,7 @@ export class PublicContractsComponent implements OnInit {
     this.contractsService.getPublicContractsList().then((result: IContract[]) => {
       this.contractsCount = 0;
       this.contractsList = result;
+
       this.loadcoinsInfo(result);
 
       setTimeout(() => {
