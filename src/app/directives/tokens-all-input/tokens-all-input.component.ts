@@ -1,6 +1,4 @@
 import {Component, ElementRef, EventEmitter, Input, OnInit, Output, ViewChild} from '@angular/core';
-import {HttpService} from '../../services/http/http.service';
-import {TokenInfoInterface, Web3Service} from '../../services/web3/web3.service';
 
 export interface ITokenInfo {
   active?: boolean;
@@ -28,8 +26,6 @@ export class TokensAllInputComponent implements OnInit {
   @ViewChild('amountField') amountField: ElementRef;
 
   constructor(
-    private httpService: HttpService,
-    private web3Service: Web3Service
   ) {
     this.tokensList = [];
   }
@@ -41,7 +37,6 @@ export class TokensAllInputComponent implements OnInit {
   private activeTokenIndex;
 
   @Output() TokenChange = new EventEmitter<string>();
-  public DecimalsEmitter = new EventEmitter<string>();
 
   private searchSubscriber;
 
@@ -51,7 +46,6 @@ export class TokensAllInputComponent implements OnInit {
     if (this.setToken) {
       this.setToken.subscribe((result) => {
         this.TokenChange.emit(result);
-        this.DecimalsEmitter.emit(result.token.decimals);
       });
     }
 
@@ -124,33 +118,15 @@ export class TokensAllInputComponent implements OnInit {
     if (!isNaN(this.activeTokenIndex)) {
       this.tokensList[this.activeTokenIndex].active = false;
     }
-
     token.active = true;
     this.activeTokenIndex = tokenIndex;
     if (withoutHide) {
       return;
     }
-
     this.tokenModel.token = token;
     this.listIsOpened = false;
     this.tokenName = token.token_name + ' (' + token.token_short_name + ')';
-
-    if (token.isEthereum) {
-      this.web3Service.getFullTokenInfo(token.address).then((tokenInfo: TokenInfoInterface) => {
-        this.tokenModel.token.decimals = tokenInfo.decimals;
-        this.TokenChange.emit(this.tokenModel);
-        this.DecimalsEmitter.emit(this.tokenModel.token.decimals);
-      }, (error) => {
-        // this.tokenModel.token.decimals = 0;
-        this.TokenChange.emit(this.tokenModel);
-        this.DecimalsEmitter.emit(this.tokenModel.token.decimals);
-      });
-    } else {
-      this.TokenChange.emit(this.tokenModel);
-      this.DecimalsEmitter.emit(this.tokenModel.token.decimals);
-    }
-
-
+    this.TokenChange.emit(this.tokenModel);
     this.showAutoInput();
   }
 

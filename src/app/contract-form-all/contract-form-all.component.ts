@@ -332,6 +332,10 @@ export class ContractFormAllComponent implements AfterContentInit, OnInit {
     });
   }
 
+  private toNormalNumber(wei, decimals) {
+    return new BigNumber(wei).div(Math.pow(10, decimals)).toString(10);
+  }
+
   public createContract(tokenForm, advancedForm?: any) {
 
     this.formData = {
@@ -343,16 +347,20 @@ export class ContractFormAllComponent implements AfterContentInit, OnInit {
 
     this.formData.public = !!this.extraForm.value.public;
     this.formData.stop_date = this.extraForm.value.active_to.clone().utc().format('YYYY-MM-DD HH:mm');
-    this.formData.base_limit = this.requestData.tokens_info.base.amount;
-    this.formData.quote_limit = this.requestData.tokens_info.quote.amount;
+
+    this.formData.base_limit = this.toNormalNumber(this.requestData.tokens_info.base.amount, this.requestData.tokens_info.base.token.decimals);
+    this.formData.quote_limit = this.toNormalNumber(this.requestData.tokens_info.quote.amount, this.requestData.tokens_info.quote.token.decimals);
 
     this.formData.owner_address = this.extraForm.value.owner_address;
+
     this.formData.name = this.requestData.tokens_info.base.token.token_short_name +
       '<>' + this.requestData.tokens_info.quote.token.token_short_name;
 
+    this.formData.min_quote_wei = this.formData.min_quote_wei ?
+      this.toNormalNumber(this.formData.min_quote_wei, this.requestData.tokens_info.quote.token.decimals) : '0';
 
-    this.formData.min_quote_wei = this.formData.min_quote_wei || '0';
-    this.formData.min_base_wei = this.formData.min_base_wei || '0';
+    this.formData.min_base_wei = this.formData.min_base_wei ?
+      this.toNormalNumber(this.formData.min_base_wei, this.requestData.tokens_info.base.token.decimals) : '0';
 
 
     if (this.brokersForm) {
