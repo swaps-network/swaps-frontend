@@ -179,7 +179,7 @@ export class PublicContractsComponent implements OnInit {
         this.loadSwapsContractInfo(contractDetails);
         break;
       case 21:
-        if (contractDetails.base_address && contractDetails.quote_address) {
+        if (contractDetails.quote_token_info.isEthereum && contractDetails.base_token_info.isEthereum) {
           this.loadSwapsContractInfo(contractDetails);
           contractDetails.isDecentralized = true;
         } else {

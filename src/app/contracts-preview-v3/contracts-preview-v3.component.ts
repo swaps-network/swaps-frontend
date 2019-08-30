@@ -39,6 +39,7 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
     this.web3Contract = this.web3Service.getContract(SWAPS_V2.ABI, SWAPS_V2.ADDRESS);
     this.originalContract = this.route.snapshot.data.contract;
 
+    const tokenInfo = this.originalContract.tokens_info;
 
     this.copiedAddresses = {};
     this.analyzeContract();
@@ -52,8 +53,6 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
     });
     this.checkAuthor();
     this.formatNumberParams = {groupSeparator: ',', groupSize: 3, decimalSeparator: '.'};
-
-    const tokenInfo = this.originalContract.tokens_info;
 
     this.rateFormat = {groupSeparator: ',', groupSize: 3, decimalSeparator: '.'};
 
@@ -336,6 +335,7 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
       const isAuthor = this.originalContract.isAuthor;
       const minBase = this.originalContract.min_base_wei;
       const minQuote = this.originalContract.min_quote_wei;
+      const isEthereum = this.originalContract.isEthereum;
 
       this.originalContract = result;
       this.originalContract.tokens_info = tokensInfo;
@@ -348,6 +348,8 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
       this.originalContract.min_base_wei = minBase;
       this.originalContract.unique_link_url =
         this.contractAdditional.link;
+      this.originalContract.isEthereum = isEthereum;
+
 
     }).finally(() => {
       this.analyzeContract();

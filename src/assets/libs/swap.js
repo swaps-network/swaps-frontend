@@ -1,24 +1,124 @@
 const SwapsNetwork = (() => {
 
-  // const API_URL = 'https://swaps.network/';
-  const API_URL = '/';
+  const parseURL = (url) => {
+    var parser = document.createElement('a'),
+      searchObject = {},
+      queries, split, i;
+    parser.href = url;
+    queries = parser.search.replace(/^\?/, '').split('&');
+    for( i = 0; i < queries.length; i++ ) {
+      split = queries[i].split('=');
+      searchObject[split[0]] = split[1];
+    }
+    return {
+      protocol: parser.protocol,
+      host: parser.host,
+      hostname: parser.hostname,
+      port: parser.port,
+      pathname: parser.pathname,
+      search: parser.search,
+      searchObject: searchObject,
+      hash: parser.hash
+    };
+  };
+
+  const allScripts = document.getElementsByTagName('script');
+  const currentScript = allScripts[allScripts.length - 1];
+
+
+  const HTTP_KEY = parseURL(currentScript.src).searchObject.key;
+
+  const API_URL = 'http://devswaps.mywish.io/';
   const API_PATH = 'api/v1/';
-  const TOKENS_LIST_PATH = 'get_coinmarketcap_tokens/';
-  const SWAPS_PATH = '';
+
+  const TOKENS_LIST_PATH = 'get_swap_tokens_api/';
+  const SWAPS_PATH = 'create_swap_order/';
+  const AUTH_PATH = 'get_swap_order_token/';
+
 
   const CLASS_PREFIX = 'w-sn';
 
+  const INI_REQUEST_PARAMS = {
+    mode: 'cors',
+  };
+
+  const API_METHODS = {
+    GET_TOKENS_LIST: {
+      url: `${API_URL}${API_PATH}${TOKENS_LIST_PATH}`,
+      options: {
+        cache: 'no-cache',
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    },
+    CREATE_SWAP: {
+      url: `${API_URL}${API_PATH}${SWAPS_PATH}`,
+      options: {...INI_REQUEST_PARAMS, ...{
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }}
+    },
+    AUTH: {
+      url: `${API_URL}${API_PATH}${AUTH_PATH}`,
+      options: {...INI_REQUEST_PARAMS, ...{
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Token': HTTP_KEY
+          }
+      }}
+    }
+  };
+
+  const FIELDS_VALUES = {};
 
   class SwapsNetwork {
     constructor() {
+      SwapsNetwork.auth().then((response) => {
+        SwapsNetwork.getTokensList().then((result) => {
+          this.tokensList = result.sort((a, b) => {
+            return (a.rank || 100000) > (b.rank || 100000) ? 1 : -1;
+          });
+          this.tokensList.forEach((token) => {
+            if (!token.platform && (token.token_short_name === 'ETH') && (token.token_name === 'Ethereum')) {
+              token.platform = 'ethereum';
+              token.isEther = true;
+            }
+            token.platform = token.platform || token.token_name.toLowerCase();
+            token.isEthereum = token.platform === 'ethereum';
+          });
+        }, (err) => {});
+      });
+    }
 
-      this.windowBody = document.getElementsByTagName('body')[0];
 
-      SwapsNetwork.getTokensList().then((result) => {
-        this.tokensList = result.sort((a, b) => {
-          return (a.rank || 100000) > (b.rank || 100000) ? 1 : -1;
-        });
-      }, (err) => {});
+    static call(method, body) {
+      const options = {...API_METHODS[method]['options']};
+      options.body = body ? JSON.stringify(body) : undefined;
+
+      if (method !== 'AUTH') {
+        options.headers['Session-Token'] = this.sessionToken;
+      }
+
+      return fetch(API_METHODS[method]['url'], options).then(
+        (response) => {
+          if (response.ok) {
+            return response.json();
+          }
+          switch (response.status) {
+            case 403:
+              return SwapsNetwork.auth().then(() => {
+                return SwapsNetwork.call(method, body).then((res) => {
+                  return res;
+                });
+              });
+          }
+        }
+      );
     }
 
 
@@ -27,14 +127,15 @@ const SwapsNetwork = (() => {
       return CLASS_PREFIX + '-' + className;
     }
 
+    static auth() {
+      return SwapsNetwork.call('AUTH', {user_id: 'undefined'}).then((response) => {
+        this.sessionToken = response['session_token'];
+        return response;
+      });
+    }
+
     static getTokensList() {
-      return fetch(`${API_URL}${API_PATH}${TOKENS_LIST_PATH}`, {
-        cache: 'no-cache',
-        method: 'GET',
-        header: {
-          'Content-Type': 'application/json'
-        }
-      }).then(response => response.json());
+      return SwapsNetwork.call('GET_TOKENS_LIST');
     }
 
     searchToken(q) {
@@ -49,10 +150,10 @@ const SwapsNetwork = (() => {
         const token = this.tokensList[indexToken];
         const tokenName = token.token_name.toLowerCase();
         const tokenSymbol = token.token_short_name.toLowerCase();
-        const seqrchQ = q.toLowerCase();
+        const searchQ = q.toLowerCase();
 
-        const nameIndexMatch = tokenName.indexOf(seqrchQ) + 1;
-        const symbolIndexMatch = tokenSymbol.indexOf(seqrchQ) + 1;
+        const nameIndexMatch = tokenName.indexOf(searchQ) + 1;
+        const symbolIndexMatch = tokenSymbol.indexOf(searchQ) + 1;
 
         if (nameIndexMatch || symbolIndexMatch) {
           result.push({...token});
@@ -61,8 +162,6 @@ const SwapsNetwork = (() => {
       }
       return result;
     }
-
-
 
     iniAutoComplete(tokenFieldElement, options) {
       let oldVal;
@@ -134,7 +233,7 @@ const SwapsNetwork = (() => {
         oldVal = tokenFieldElement.value;
         if (searchResult) {
           this.windowBody.appendChild(tokensListContainer);
-        setPositionTokensList();
+          setPositionTokensList();
         }
       });
 
@@ -142,6 +241,13 @@ const SwapsNetwork = (() => {
         if (tokensListContainer.parentElement === this.windowBody) {
           this.windowBody.removeChild(tokensListContainer);
         }
+      };
+
+      const resetAC = () => {
+        closeAC();
+        selectedToken = undefined;
+        tokensListContainer.innerHTML = '';
+        itemsResult = [];
       };
 
       const selectToken = (tokenItem, onlyItem) => {
@@ -214,23 +320,30 @@ const SwapsNetwork = (() => {
       };
 
       return {
-        close: closeAC
+        close: closeAC,
+        reset: resetAC
       };
 
     }
 
-    iniAmountMask(amountField) {
+    iniAmountMask(amountField, options) {
       const inputFilter = (value) => {
         value = value.replace(/,/g, '');
         return /^(\d+(\.?\d{0,8})?)?$/.test(value);
       };
+
       const maskValue = () => {
         const isDecimals = amountField.value.indexOf('.') > 0;
         const parsedNumber = amountField.value.split('.');
         const sizeNumber = parsedNumber[0].split(',').length - 1;
-        parsedNumber[0] = parsedNumber[0].replace(/,/g, '');
+        let fieldValue = parsedNumber[0] = parsedNumber[0].replace(/,/g, '');
+
         let value = parsedNumber[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
         const newSizeNumber = value.split(',').length - 1;
+
+        fieldValue+= (isDecimals && parsedNumber[1]) ? '.' + parsedNumber[1] : '';
+        options.onchange(fieldValue);
+
         value+= (isDecimals ? '.' + (parsedNumber[1] || '') : '');
         let carretPosition;
         if (amountField.selectionStart === amountField.selectionEnd) {
@@ -244,6 +357,9 @@ const SwapsNetwork = (() => {
       ["input", "keydown", "keyup", "mousedown", "mouseup", "select", "contextmenu", "drop"].forEach(function(event) {
         amountField.addEventListener(event, function() {
           if (inputFilter(this.value)) {
+            if (this.oldValue === this.value) {
+              return;
+            }
             this.oldValue = this.value;
             this.oldSelectionStart = this.selectionStart;
             this.oldSelectionEnd = this.selectionEnd;
@@ -255,7 +371,6 @@ const SwapsNetwork = (() => {
         });
       });
     }
-
 
     iniTokenField(fieldElement, options) {
 
@@ -276,18 +391,33 @@ const SwapsNetwork = (() => {
       amountField.className = SwapsNetwork.getClass('one-field_inputs_amount');
       amountField.setAttribute('placeholder', options.amountPlaceholder);
       fieldsBlock.appendChild(amountField);
-      this.iniAmountMask(amountField);
+      this.iniAmountMask(amountField, {
+        onchange: (amount) => {
+          FIELDS_VALUES[options.fields.amount] = amount;
+          options.changeState();
+        }
+      });
 
       const chooseTokenButton = document.createElement('button');
       chooseTokenButton.setAttribute('type', 'button');
       chooseTokenButton.className = SwapsNetwork.getClass('one-field_inputs_bt');
-      chooseTokenButton.innerText = options.button;
       fieldsBlock.appendChild(chooseTokenButton);
 
       const tokenAutoComplete = document.createElement('input');
       tokenAutoComplete.className = SwapsNetwork.getClass('one-field_inputs_token');
       tokenAutoComplete.setAttribute('placeholder', options.tokenPlaceholder);
       fieldsBlock.appendChild(tokenAutoComplete);
+
+      const resetFields = () => {
+        FIELDS_VALUES[options.fields.token] = null;
+        FIELDS_VALUES[options.fields.amount] = null;
+        tokenAutoComplete.value = '';
+        amountField.value = '';
+        chooseTokenButton.innerText = options.button;
+        options.changeState();
+        tokenAC.reset();
+      };
+
 
       const tokenAC = this.iniAutoComplete(tokenAutoComplete, {
         onSelectToken: (tokenItem) => {
@@ -299,13 +429,16 @@ const SwapsNetwork = (() => {
           btnIcon.className = SwapsNetwork.getClass('one-field_inputs_bt__icon');
 
           const btnTokenName = document.createElement('span');
-          btnTokenName.innerText =  `${tokenItem.token_short_name} (${tokenItem.token_name})`;
+          btnTokenName.innerText =  `${tokenItem.token_short_name}`;
           btnTokenName.className = SwapsNetwork.getClass('one-field_inputs_bt__name');
 
           chooseTokenButton.appendChild(btnIcon);
           chooseTokenButton.appendChild(btnTokenName);
 
           amountField.focus();
+
+          FIELDS_VALUES[options.fields.token] = {...tokenItem};
+          options.changeState();
         }
       });
 
@@ -327,11 +460,48 @@ const SwapsNetwork = (() => {
         tokenAC.close();
         amountField.focus();
       });
+
+      resetFields();
+
+      return resetFields;
     }
 
+    static validateForm() {
+      let valid = true;
+      for (let fieldName in FIELDS_VALUES) {
+        if (!FIELDS_VALUES[fieldName]) {
+          valid = false;
+          break;
+        }
+      }
 
+      return valid;
+    }
+
+    static submitForm() {
+      const requestData = {};
+
+      for (let f in FIELDS_VALUES) {
+        if (typeof FIELDS_VALUES[f] === 'string') {
+          requestData[f] = FIELDS_VALUES[f];
+        } else {
+          requestData[f.split('_')[0] + '_coin_id'] = FIELDS_VALUES[f]['mywish_id'];
+        }
+      }
+
+
+      return SwapsNetwork.call('CREATE_SWAP', requestData).then((response) => {
+        return response;
+      }, (error) => {
+        return error;
+      });
+
+    }
 
     init(element, options) {
+
+      this.windowBody = document.getElementsByTagName('body')[0];
+
       const widgetContainer = document.createElement('div');
       widgetContainer.className = SwapsNetwork.getClass('wrapper');
       document.getElementById(element).appendChild(widgetContainer);
@@ -340,36 +510,78 @@ const SwapsNetwork = (() => {
       fieldsBlock.className = SwapsNetwork.getClass('fields');
       widgetContainer.appendChild(fieldsBlock);
 
+      const buttonBlock = document.createElement('div');
+      buttonBlock.className = SwapsNetwork.getClass('submit-btn');
+      widgetContainer.appendChild(buttonBlock);
+
+      const submitBtn = document.createElement('button');
+      submitBtn.className = SwapsNetwork.getClass('submit-btn_control');
+      buttonBlock.appendChild(submitBtn);
+
+      const textButton = document.createElement('span');
+      submitBtn.appendChild(textButton);
+      submitBtn.setAttribute('disabled', 'disabled');
+
+      textButton.innerText = 'Create';
+
+      const resetForm = () => {
+        resetBaseFields();
+        resetQuoteFields();
+      };
+
+
+      submitBtn.onclick = () => {
+        if (submitBtn.getAttribute('disabled')) {
+          return;
+        }
+        SwapsNetwork.submitForm().then((result) => {
+          resetForm();
+          options.onSubmit ? options.onSubmit(result) : false;
+        });
+      };
+
       const tokenFirstField = document.createElement('div');
       tokenFirstField.className = SwapsNetwork.getClass('fields_block');
 
-      this.iniTokenField(tokenFirstField, {
+      const checkState = () => {
+        if (!SwapsNetwork.validateForm()) {
+          submitBtn.setAttribute('disabled', 'disabled');
+        } else {
+          submitBtn.removeAttribute('disabled');
+        }
+      };
+
+      const resetBaseFields = this.iniTokenField(tokenFirstField, {
         label: 'You have',
         button: 'Choose Token',
         amountPlaceholder: 'Enter Amount',
-        tokenPlaceholder: 'Search'
+        tokenPlaceholder: 'Search',
+        fields: {
+          token: 'base_token',
+          amount: 'base_limit'
+        },
+        changeState: checkState
       });
-
       fieldsBlock.appendChild(tokenFirstField);
 
       const tokenSecondField = document.createElement('div');
-
       tokenSecondField.className = SwapsNetwork.getClass('fields_block');
-      this.iniTokenField(tokenSecondField, {
+      const resetQuoteFields = this.iniTokenField(tokenSecondField, {
         label: 'You want to get',
         button: 'Choose Token',
         amountPlaceholder: 'Enter Amount',
-        tokenPlaceholder: 'Search'
+        tokenPlaceholder: 'Search',
+        fields: {
+          token: 'quote_token',
+          amount: 'quote_limit'
+        },
+        changeState: checkState
       });
+
       fieldsBlock.appendChild(tokenSecondField);
     }
   }
 
   return new SwapsNetwork();
 })();
-
-
-window.onload = () => {
-  SwapsNetwork.init('swaps-network-widget');
-};
 

@@ -421,6 +421,10 @@ export class ContractEditV3Resolver implements Resolve<any> {
 
     promise.then((trade: IContractV3) => {
       this.web3Service.getSWAPSCoinInfo(trade).then((result) => {
+        if (result.tokens_info.base.token.isEthereum && result.tokens_info.quote.token.isEthereum) {
+          result.isEthereum = true;
+        }
+
         observer.next(result);
         observer.complete();
       });

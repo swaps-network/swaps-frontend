@@ -150,14 +150,7 @@ export class ContractsService {
   public getSwapByPublic(publicLink) {
     return this.httpService.get(`get_swap3_for_unique_link/`, {
       unique_link: publicLink
-    }).toPromise().then((result) => {
-      if (result.base_address && result.quote_address) {
-        result.isEthereum = true;
-      } else {
-        result.state = (result.state !== 'WAITING_FOR_ACTIVATION') ? result.state : 'ACTIVE';
-      }
-      return result;
-    });
+    }).toPromise();
   }
 
   public changeContractState(id) {
