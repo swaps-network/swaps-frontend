@@ -23,8 +23,6 @@ const SwapsNetwork = (() => {
     }
   };
 
-  const STATUSES = ['CREATED', 'ACTIVE', 'DONE', 'CANCELLED', 'EXPIRED'];
-
   const parseURL = (url) => {
     var parser = document.createElement('a'),
       searchObject = {},
@@ -60,6 +58,7 @@ const SwapsNetwork = (() => {
   const SWAPS_PATH = 'create_swap_order/';
   const AUTH_PATH = 'get_swap_order_token/';
   const SWAP_ORDERS = 'get_swap3_orders/';
+  const DELETE_ORDER_PATH = 'delete_order_for_user/';
 
 
   const CLASS_PREFIX = 'w-sn';
@@ -107,6 +106,15 @@ const SwapsNetwork = (() => {
             'Token': HTTP_KEY
           }
       }}
+    },
+    DELETE_ORDER: {
+      url: `${API_URL}${API_PATH}${DELETE_ORDER_PATH}`,
+      options: {...INI_REQUEST_PARAMS, ...{
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }}
     }
   };
 
@@ -198,6 +206,12 @@ const SwapsNetwork = (() => {
 
     static getTokensList() {
       return SwapsNetwork.call('GET_TOKENS_LIST');
+    }
+
+    deleteOrder(orderId) {
+      return SwapsNetwork.call('DELETE_ORDER', {order_id: orderId}).then((response) => {
+        return response;
+      });
     }
 
     getSwapOrdersList() {
@@ -397,12 +411,10 @@ const SwapsNetwork = (() => {
         tokensListContainer.style.top = (tokenFieldElementPosition.top + tokenFieldElement.offsetHeight) + 'px';
         tokensListContainer.style.width = tokenFieldElement.offsetWidth + 'px';
       };
-
       return {
         close: closeAC,
         reset: resetAC
       };
-
     }
 
     static formatDate(date) {
@@ -439,7 +451,6 @@ const SwapsNetwork = (() => {
         fieldValue
       };
     }
-
 
     iniAmountMask(amountField, options) {
       const inputFilter = (value) => {
@@ -608,7 +619,6 @@ const SwapsNetwork = (() => {
 
     }
 
-
     drawForm(element, options) {
 
       this.windowBody = document.getElementsByTagName('body')[0];
@@ -695,7 +705,6 @@ const SwapsNetwork = (() => {
       fieldsBlock.appendChild(tokenSecondField);
     }
 
-    
     static getTokenCellNode(coin) {
       const tokenCellElement = document.createElement('div');
       tokenCellElement.className = SwapsNetwork.getClass('order-item_cell');
@@ -743,9 +752,11 @@ const SwapsNetwork = (() => {
       return limitCellElement;
     }
 
-    static getOrderNode(order) {
+    static getOrderNode(order, options) {
 
       const orderItemElement = document.createElement('div');
+      options.parent.appendChild(orderItemElement);
+
       orderItemElement.className = SwapsNetwork.getClass('order-item');
 
       // Base token info
@@ -810,21 +821,37 @@ const SwapsNetwork = (() => {
 
       orderItemElement.appendChild(deleteOrderBtnContent);
 
+      deleteOrderBtn.onclick = () => {
+        deleteOrderBtn.setAttribute('disabled', 'disabled');
+        options.deleteMethod(order.id).then((result) => {
+          options.parent.removeChild(orderItemElement);
+        });
+      };
+
       return orderItemElement;
     }
 
-
-    drawOrdersList(element, options) {
+    drawOrdersList(element) {
       const blockNode = document.getElementById(element);
       const ordersListNode = document.createElement('div');
       ordersListNode.className = SwapsNetwork.getClass('orders_list');
 
-      blockNode.appendChild(ordersListNode);
 
       return this.getSwapOrdersList().then((ordersList) => {
         ordersList.forEach((order) => {
-          ordersListNode.appendChild(SwapsNetwork.getOrderNode(order));
+          SwapsNetwork.getOrderNode(order, {
+            parent: ordersListNode,
+            deleteMethod: (orderId) => {
+              return this.deleteOrder(orderId).then((result) => {
+                this.drawOrdersList(element);
+                return result;
+              });
+            }
+          });
         });
+        blockNode.innerHTML = '';
+        blockNode.appendChild(ordersListNode);
+
         return ordersList;
       });
     }

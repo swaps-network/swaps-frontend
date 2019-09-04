@@ -146,7 +146,7 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
         });
       };
       if (this.originalContract.isEthereum) {
-        if ((this.originalContract.contract_state === 'CREATED') || (!this.originalContract.owner_address)) {
+        if (!this.originalContract.owner_address) {
           this.web3Contract.methods.owners(memo).call().then((address) => {
             if (address && (address !== '0x0000000000000000000000000000000000000000')) {
               this.originalContract.owner_address = address;
@@ -162,6 +162,7 @@ export class ContractsPreviewV3Component implements OnInit, OnDestroy {
           checkAfterActive();
         }
       } else {
+        this.originalContract.contract_state = this.originalContract.state;
         resolve(this.originalContract.state);
       }
     });
