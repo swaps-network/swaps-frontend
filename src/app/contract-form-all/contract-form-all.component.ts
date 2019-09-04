@@ -420,7 +420,7 @@ export class ContractEditV3Resolver implements Resolve<any> {
       this.contractsService.getSwapByPublic(this.publicLink);
 
     promise.then((trade: IContractV3) => {
-      this.web3Service.getSWAPSCoinInfo(trade).then((result) => {
+      this.web3Service.getSWAPSCoinInfo(trade).then((result: any) => {
         if (result.tokens_info.base.token.isEthereum && result.tokens_info.quote.token.isEthereum) {
           result.isEthereum = true;
         }

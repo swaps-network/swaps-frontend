@@ -1,5 +1,30 @@
 const SwapsNetwork = (() => {
 
+  const ordersStates = {
+    CREATED: {
+      INDEX: 0,
+      TEXT: 'Created'
+    },
+    ACTIVE: {
+      INDEX: 1,
+      TEXT: 'Expires in'
+    },
+    DONE: {
+      INDEX: 2,
+      TEXT: 'Done'
+    },
+    CANCELLED: {
+      INDEX: 3,
+      TEXT: 'Cancelled'
+    },
+    EXPIRED: {
+      INDEX: 4,
+      TEXT: 'Expired'
+    }
+  };
+
+  const STATUSES = ['CREATED', 'ACTIVE', 'DONE', 'CANCELLED', 'EXPIRED'];
+
   const parseURL = (url) => {
     var parser = document.createElement('a'),
       searchObject = {},
@@ -34,6 +59,7 @@ const SwapsNetwork = (() => {
   const TOKENS_LIST_PATH = 'get_swap_tokens_api/';
   const SWAPS_PATH = 'create_swap_order/';
   const AUTH_PATH = 'get_swap_order_token/';
+  const SWAP_ORDERS = 'get_swap3_orders/';
 
 
   const CLASS_PREFIX = 'w-sn';
@@ -45,6 +71,16 @@ const SwapsNetwork = (() => {
   const API_METHODS = {
     GET_TOKENS_LIST: {
       url: `${API_URL}${API_PATH}${TOKENS_LIST_PATH}`,
+      options: {
+        cache: 'no-cache',
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    },
+    GET_SWAP_ORDERS: {
+      url: `${API_URL}${API_PATH}${SWAP_ORDERS}`,
       options: {
         cache: 'no-cache',
         method: 'GET',
@@ -75,11 +111,19 @@ const SwapsNetwork = (() => {
   };
 
   const FIELDS_VALUES = {};
+  let BASE_OPTIONS = {};
 
   class SwapsNetwork {
     constructor() {
-      SwapsNetwork.auth().then((response) => {
-        SwapsNetwork.getTokensList().then((result) => {
+
+    }
+
+    init(options) {
+
+      BASE_OPTIONS = options;
+
+      return SwapsNetwork.auth().then((response) => {
+        return SwapsNetwork.getTokensList().then((result) => {
           this.tokensList = result.sort((a, b) => {
             return (a.rank || 100000) > (b.rank || 100000) ? 1 : -1;
           });
@@ -91,12 +135,11 @@ const SwapsNetwork = (() => {
             token.platform = token.platform || token.token_name.toLowerCase();
             token.isEthereum = token.platform === 'ethereum';
           });
-        }, (err) => {});
+        });
       });
     }
 
-
-    static call(method, body) {
+    static call(method, body, promise) {
       const options = {...API_METHODS[method]['options']};
       options.body = body ? JSON.stringify(body) : undefined;
 
@@ -104,31 +147,50 @@ const SwapsNetwork = (() => {
         options.headers['Session-Token'] = this.sessionToken;
       }
 
-      return fetch(API_METHODS[method]['url'], options).then(
-        (response) => {
-          if (response.ok) {
-            return response.json();
+
+      const fetchCall = (resolve, reject) => {
+        let originalResponse;
+        const request = fetch(API_METHODS[method]['url'], options).then((response) => {
+          originalResponse = response;
+          return response.json();
+        });
+
+        return request.then((response) => {
+          if (originalResponse.ok) {
+            resolve(response);
+            return;
           }
-          switch (response.status) {
+          switch (originalResponse.status) {
             case 403:
-              return SwapsNetwork.auth().then(() => {
-                return SwapsNetwork.call(method, body).then((res) => {
-                  return res;
-                });
+              return SwapsNetwork.auth().then((resp) => {
+                return SwapsNetwork.call(method, body, {resolve, reject});
               });
+            default:
+              SwapsNetwork.getOption('onError')(response);
+              reject(response);
           }
-        }
-      );
+        });
+      };
+
+      if (promise) {
+        return fetchCall(promise.resolve, promise.reject);
+      }
+
+      return new Promise((resolve, reject) => {
+        fetchCall(resolve, reject);
+      });
     }
-
-
 
     static getClass(className) {
       return CLASS_PREFIX + '-' + className;
     }
 
+    static getOption(optionName) {
+      return BASE_OPTIONS[optionName];
+    }
+
     static auth() {
-      return SwapsNetwork.call('AUTH', {user_id: 'undefined'}).then((response) => {
+      return SwapsNetwork.call('AUTH', {user_id: SwapsNetwork.getOption('userId').toString()}).then((response) => {
         this.sessionToken = response['session_token'];
         return response;
       });
@@ -136,6 +198,23 @@ const SwapsNetwork = (() => {
 
     static getTokensList() {
       return SwapsNetwork.call('GET_TOKENS_LIST');
+    }
+
+    getSwapOrdersList() {
+      return SwapsNetwork.call('GET_SWAP_ORDERS').then((result) => {
+        result.sort((order1, order2) => {
+          return (new Date(order1['created_date']) < new Date(order2['created_date'])) ? 1 : -1;
+        });
+        result.forEach((order) => {
+          order.base_coin = this.tokensList.filter((token) => {
+            return token.mywish_id === order.base_coin_id;
+          })[0];
+          order.quote_coin = this.tokensList.filter((token) => {
+            return token.mywish_id === order.quote_coin_id;
+          })[0];
+        });
+        return result;
+      });
     }
 
     searchToken(q) {
@@ -326,6 +405,42 @@ const SwapsNetwork = (() => {
 
     }
 
+    static formatDate(date) {
+      let d = date;
+      d = [
+        '0' + d.getDate(),
+        '0' + (d.getMonth() + 1),
+        '' + d.getFullYear(),
+        '0' + d.getHours(),
+        '0' + d.getMinutes()
+      ].map(component => component.slice(-2));
+      return d.slice(0, 3).join('.') + ' ' + d.slice(3).join(':');
+    }
+
+    static getFormattedNumber(number, decimals) {
+      number = number.toString();
+      const isDecimals = number.indexOf('.') > 0;
+      const parsedNumber = number.split('.');
+
+      let fieldValue = parsedNumber[0] = parsedNumber[0].replace(/,/g, '');
+      let value = parsedNumber[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+
+      if (isDecimals && (decimals !== undefined) && parsedNumber[1]) {
+        const regExp = new RegExp('^([0-9]{0,' + decimals + '}).*$', 'g');
+        parsedNumber[1] = parsedNumber[1].replace(regExp, '$1');
+      }
+
+      fieldValue+= (isDecimals && parsedNumber[1]) ? '.' + parsedNumber[1] : '';
+      value+= (isDecimals ? '.' + (parsedNumber[1] || '') : '');
+
+      return {
+        value,
+        fieldValue
+      };
+    }
+
+
     iniAmountMask(amountField, options) {
       const inputFilter = (value) => {
         value = value.replace(/,/g, '');
@@ -333,23 +448,20 @@ const SwapsNetwork = (() => {
       };
 
       const maskValue = () => {
-        const isDecimals = amountField.value.indexOf('.') > 0;
-        const parsedNumber = amountField.value.split('.');
-        const sizeNumber = parsedNumber[0].split(',').length - 1;
-        let fieldValue = parsedNumber[0] = parsedNumber[0].replace(/,/g, '');
+        const newValue = SwapsNetwork.getFormattedNumber(amountField.value);
 
-        let value = parsedNumber[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-        const newSizeNumber = value.split(',').length - 1;
+        const sizeNumber = amountField.value.split('.')[0].split(',').length - 1;
+        const newSizeNumber = newValue.value.split('.')[0].split(',').length - 1;
 
-        fieldValue+= (isDecimals && parsedNumber[1]) ? '.' + parsedNumber[1] : '';
-        options.onchange(fieldValue);
+        options.onchange(newValue.fieldValue);
 
-        value+= (isDecimals ? '.' + (parsedNumber[1] || '') : '');
         let carretPosition;
+
         if (amountField.selectionStart === amountField.selectionEnd) {
           carretPosition = amountField.selectionStart + (newSizeNumber - sizeNumber);
         }
-        amountField.value = value;
+
+        amountField.value = newValue.value;
         if (carretPosition) {
           amountField.setSelectionRange(carretPosition, carretPosition);
         }
@@ -480,25 +592,24 @@ const SwapsNetwork = (() => {
 
     static submitForm() {
       const requestData = {};
-
+      const tokensNames = {};
       for (let f in FIELDS_VALUES) {
         if (typeof FIELDS_VALUES[f] === 'string') {
           requestData[f] = FIELDS_VALUES[f];
         } else {
+          const typeToken = f.split('_')[0];
+          tokensNames[typeToken] = FIELDS_VALUES[f]['token_short_name'];
           requestData[f.split('_')[0] + '_coin_id'] = FIELDS_VALUES[f]['mywish_id'];
         }
       }
+      requestData.name = tokensNames['base'] + '<>' + tokensNames['quote'];
 
-
-      return SwapsNetwork.call('CREATE_SWAP', requestData).then((response) => {
-        return response;
-      }, (error) => {
-        return error;
-      });
+      return SwapsNetwork.call('CREATE_SWAP', requestData);
 
     }
 
-    init(element, options) {
+
+    drawForm(element, options) {
 
       this.windowBody = document.getElementsByTagName('body')[0];
 
@@ -534,9 +645,12 @@ const SwapsNetwork = (() => {
         if (submitBtn.getAttribute('disabled')) {
           return;
         }
+        submitBtn.setAttribute('disabled', 'disabled');
         SwapsNetwork.submitForm().then((result) => {
           resetForm();
           options.onSubmit ? options.onSubmit(result) : false;
+        }).finally(() => {
+          submitBtn.removeAttribute('disabled');
         });
       };
 
@@ -580,6 +694,141 @@ const SwapsNetwork = (() => {
 
       fieldsBlock.appendChild(tokenSecondField);
     }
+
+    
+    static getTokenCellNode(coin) {
+      const tokenCellElement = document.createElement('div');
+      tokenCellElement.className = SwapsNetwork.getClass('order-item_cell');
+      tokenCellElement.classList.add(SwapsNetwork.getClass('order-item_cell__token'));
+      const tokenContent = document.createElement('div');
+      tokenContent.className = SwapsNetwork.getClass('order-content');
+      const tokenName = document.createElement('div');
+      tokenName.className = SwapsNetwork.getClass('order-content_token-name');
+      const tokenIcon = document.createElement('img');
+      tokenIcon.className = SwapsNetwork.getClass('order-content_token-name_icon');
+      tokenIcon.setAttribute('src', coin.image_link);
+      const tokenSymbol = document.createElement('span');
+      tokenSymbol.className = SwapsNetwork.getClass('order-content_token-name_symbol');
+      tokenSymbol.innerText = coin.token_short_name;
+      tokenName.appendChild(tokenIcon);
+      tokenName.appendChild(tokenSymbol);
+      tokenContent.appendChild(tokenName);
+      tokenCellElement.appendChild(tokenContent);
+      return tokenCellElement;
+    }
+
+    static getVolumeCellNode(params) {
+      const limitCellElement = document.createElement('div');
+      limitCellElement.className = SwapsNetwork.getClass('order-item_cell');
+      limitCellElement.classList.add(SwapsNetwork.getClass('order-item_cell__amount'));
+      const limitContent = document.createElement('div');
+      limitContent.className = SwapsNetwork.getClass('order-content');
+      const volume = document.createElement('div');
+      volume.className = SwapsNetwork.getClass('order-content_token-volume');
+      const volumeLimit = document.createElement('div');
+      volumeLimit.className = SwapsNetwork.getClass('order-content_token-volume_limit');
+      volumeLimit.innerText = SwapsNetwork.getFormattedNumber(params.limit1, 8).value  + ' ' +
+        params.coin1.token_short_name;
+
+      const volumeRate = document.createElement('div');
+      volumeRate.className = SwapsNetwork.getClass('order-content_token-volume_price');
+      volumeRate.innerText =
+        SwapsNetwork.getFormattedNumber(params.limit1 / params.limit2, 4).value + ' ' +
+        params.coin1.token_short_name + '/' + params.coin2.token_short_name;
+
+      volume.appendChild(volumeLimit);
+      volume.appendChild(volumeRate);
+      limitContent.appendChild(volume);
+      limitCellElement.appendChild(limitContent);
+      return limitCellElement;
+    }
+
+    static getOrderNode(order) {
+
+      const orderItemElement = document.createElement('div');
+      orderItemElement.className = SwapsNetwork.getClass('order-item');
+
+      // Base token info
+      orderItemElement.appendChild(SwapsNetwork.getTokenCellNode(order.base_coin));
+
+
+      // Base limit info
+      orderItemElement.appendChild(SwapsNetwork.getVolumeCellNode({
+        limit1: order.base_limit,
+        limit2: order.quote_limit,
+        coin1: order.base_coin,
+        coin2: order.quote_coin
+      }));
+
+
+      // Quote limit info
+      orderItemElement.appendChild(SwapsNetwork.getVolumeCellNode({
+        limit2: order.base_limit,
+        limit1: order.quote_limit,
+        coin2: order.base_coin,
+        coin1: order.quote_coin
+      }));
+
+
+      // Quote token info
+      orderItemElement.appendChild(SwapsNetwork.getTokenCellNode(order.quote_coin));
+
+      // Status and expired info
+      const dateCellElement = document.createElement('div');
+      dateCellElement.className = SwapsNetwork.getClass('order-item_cell');
+      dateCellElement.classList.add(SwapsNetwork.getClass('order-item_cell__expire-in'));
+      const dateContent = document.createElement('div');
+      dateContent.className = SwapsNetwork.getClass('order-content');
+      const orderStatus = document.createElement('div');
+      orderStatus.className = SwapsNetwork.getClass('order-status');
+      orderStatus.classList.add(SwapsNetwork.getClass('order-status') + '__' + ordersStates[order.state].INDEX);
+
+
+      orderStatus.innerText = ordersStates[order.state].TEXT;
+
+      const orderExpireDate = document.createElement('div');
+      orderExpireDate.className = SwapsNetwork.getClass('order-date');
+      orderExpireDate.innerText = SwapsNetwork.formatDate(new Date(order.stop_date));
+
+      dateContent.appendChild(orderStatus);
+
+      if (ordersStates[order.state].INDEX === 1) {
+        dateContent.appendChild(orderExpireDate);
+      }
+
+      dateCellElement.appendChild(dateContent);
+      orderItemElement.appendChild(dateCellElement);
+
+
+      // Delete button
+      const deleteOrderBtnContent = document.createElement('div');
+      deleteOrderBtnContent.className = SwapsNetwork.getClass('order-delete');
+
+      const deleteOrderBtn = document.createElement('button');
+      deleteOrderBtn.className = SwapsNetwork.getClass('order-delete_btn');
+      deleteOrderBtnContent.appendChild(deleteOrderBtn);
+
+      orderItemElement.appendChild(deleteOrderBtnContent);
+
+      return orderItemElement;
+    }
+
+
+    drawOrdersList(element, options) {
+      const blockNode = document.getElementById(element);
+      const ordersListNode = document.createElement('div');
+      ordersListNode.className = SwapsNetwork.getClass('orders_list');
+
+      blockNode.appendChild(ordersListNode);
+
+      return this.getSwapOrdersList().then((ordersList) => {
+        ordersList.forEach((order) => {
+          ordersListNode.appendChild(SwapsNetwork.getOrderNode(order));
+        });
+        return ordersList;
+      });
+    }
+
   }
 
   return new SwapsNetwork();
