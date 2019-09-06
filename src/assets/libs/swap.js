@@ -23,40 +23,12 @@ const SwapsNetwork = (() => {
     }
   };
 
-  const parseURL = (url) => {
-    var parser = document.createElement('a'),
-      searchObject = {},
-      queries, split, i;
-    parser.href = url;
-    queries = parser.search.replace(/^\?/, '').split('&');
-    for( i = 0; i < queries.length; i++ ) {
-      split = queries[i].split('=');
-      searchObject[split[0]] = split[1];
-    }
-    return {
-      protocol: parser.protocol,
-      host: parser.host,
-      hostname: parser.hostname,
-      port: parser.port,
-      pathname: parser.pathname,
-      search: parser.search,
-      searchObject: searchObject,
-      hash: parser.hash
-    };
-  };
-
-  const allScripts = document.getElementsByTagName('script');
-  const currentScript = allScripts[allScripts.length - 1];
-
-
-  const HTTP_KEY = parseURL(currentScript.src).searchObject.key;
-
   const API_URL = 'http://devswaps.mywish.io/';
   const API_PATH = 'api/v1/';
 
   const TOKENS_LIST_PATH = 'get_swap_tokens_api/';
   const SWAPS_PATH = 'create_swap_order/';
-  const AUTH_PATH = 'get_swap_order_token/';
+
   const SWAP_ORDERS = 'get_swap3_orders/';
   const DELETE_ORDER_PATH = 'delete_order_for_user/';
 
@@ -97,16 +69,6 @@ const SwapsNetwork = (() => {
           }
         }}
     },
-    AUTH: {
-      url: `${API_URL}${API_PATH}${AUTH_PATH}`,
-      options: {...INI_REQUEST_PARAMS, ...{
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Token': HTTP_KEY
-          }
-      }}
-    },
     DELETE_ORDER: {
       url: `${API_URL}${API_PATH}${DELETE_ORDER_PATH}`,
       options: {...INI_REQUEST_PARAMS, ...{
@@ -121,40 +83,43 @@ const SwapsNetwork = (() => {
   const FIELDS_VALUES = {};
   let BASE_OPTIONS = {};
 
+
   class SwapsNetwork {
     constructor() {
-
+      this.ordersList = [];
     }
 
     init(options) {
-
       BASE_OPTIONS = options;
-
-      return SwapsNetwork.auth().then((response) => {
-        return SwapsNetwork.getTokensList().then((result) => {
-          this.tokensList = result.sort((a, b) => {
-            return (a.rank || 100000) > (b.rank || 100000) ? 1 : -1;
+      return SwapsNetwork.getOption('updateSessionToken')().then((sessionToken) => {
+        BASE_OPTIONS.sessionToken = sessionToken;
+        if (!this.tokensList) {
+          return SwapsNetwork.getTokensList().then((result) => {
+            this.tokensList = result.sort((a, b) => {
+              return (a.rank || 100000) > (b.rank || 100000) ? 1 : -1;
+            });
+            this.tokensList.forEach((token) => {
+              if (!token.platform && (token.token_short_name === 'ETH') && (token.token_name === 'Ethereum')) {
+                token.platform = 'ethereum';
+                token.isEther = true;
+              }
+              token.platform = token.platform || token.token_name.toLowerCase();
+              token.isEthereum = token.platform === 'ethereum';
+            });
+            return this.tokensList;
           });
-          this.tokensList.forEach((token) => {
-            if (!token.platform && (token.token_short_name === 'ETH') && (token.token_name === 'Ethereum')) {
-              token.platform = 'ethereum';
-              token.isEther = true;
-            }
-            token.platform = token.platform || token.token_name.toLowerCase();
-            token.isEthereum = token.platform === 'ethereum';
+        } else {
+          return new Promise((resolve, reject) => {
+            resolve(this.tokensList);
           });
-        });
+        }
       });
     }
 
     static call(method, body, promise) {
       const options = {...API_METHODS[method]['options']};
       options.body = body ? JSON.stringify(body) : undefined;
-
-      if (method !== 'AUTH') {
-        options.headers['Session-Token'] = this.sessionToken;
-      }
-
+      options.headers['Session-Token'] = SwapsNetwork.getOption('sessionToken');
 
       const fetchCall = (resolve, reject) => {
         let originalResponse;
@@ -170,7 +135,8 @@ const SwapsNetwork = (() => {
           }
           switch (originalResponse.status) {
             case 403:
-              return SwapsNetwork.auth().then((resp) => {
+              return SwapsNetwork.getOption('updateSessionToken')().then((sessionToken) => {
+                BASE_OPTIONS.sessionToken = sessionToken;
                 return SwapsNetwork.call(method, body, {resolve, reject});
               });
             default:
@@ -195,13 +161,6 @@ const SwapsNetwork = (() => {
 
     static getOption(optionName) {
       return BASE_OPTIONS[optionName];
-    }
-
-    static auth() {
-      return SwapsNetwork.call('AUTH', {user_id: SwapsNetwork.getOption('userId').toString()}).then((response) => {
-        this.sessionToken = response['session_token'];
-        return response;
-      });
     }
 
     static getTokensList() {
@@ -244,10 +203,8 @@ const SwapsNetwork = (() => {
         const tokenName = token.token_name.toLowerCase();
         const tokenSymbol = token.token_short_name.toLowerCase();
         const searchQ = q.toLowerCase();
-
         const nameIndexMatch = tokenName.indexOf(searchQ) + 1;
         const symbolIndexMatch = tokenSymbol.indexOf(searchQ) + 1;
-
         if (nameIndexMatch || symbolIndexMatch) {
           result.push({...token});
         }
@@ -650,8 +607,7 @@ const SwapsNetwork = (() => {
         resetQuoteFields();
       };
 
-
-      submitBtn.onclick = () => {
+      const submitForm = () => {
         if (submitBtn.getAttribute('disabled')) {
           return;
         }
@@ -659,10 +615,16 @@ const SwapsNetwork = (() => {
         SwapsNetwork.submitForm().then((result) => {
           resetForm();
           options.onSubmit ? options.onSubmit(result) : false;
+        }, (error) => {
+          options.createError ? options.createError(error) : false;
         }).finally(() => {
           submitBtn.removeAttribute('disabled');
         });
       };
+
+
+      submitBtn.onclick = submitForm;
+
 
       const tokenFirstField = document.createElement('div');
       tokenFirstField.className = SwapsNetwork.getClass('fields_block');
@@ -836,26 +798,51 @@ const SwapsNetwork = (() => {
       const ordersListNode = document.createElement('div');
       ordersListNode.className = SwapsNetwork.getClass('orders_list');
 
+      const deleteOrder = (orderId) => {
+        return this.deleteOrder(orderId).then((result) => {
+          this.drawOrdersList(element);
+          return result;
+        });
+      };
 
       return this.getSwapOrdersList().then((ordersList) => {
+
         ordersList.forEach((order) => {
-          SwapsNetwork.getOrderNode(order, {
-            parent: ordersListNode,
-            deleteMethod: (orderId) => {
-              return this.deleteOrder(orderId).then((result) => {
-                this.drawOrdersList(element);
-                return result;
-              });
-            }
+          if (!this.ordersList.filter((currOrderItem) => {
+            return currOrderItem.order.id === order.id;
+          }).length) {
+            this.ordersList.unshift({
+              order: order,
+              element: SwapsNetwork.getOrderNode(order, {
+                parent: ordersListNode,
+                deleteMethod: deleteOrder
+              })
+            });
+          }
+        });
+
+        this.ordersList = this.ordersList.filter((currOrderItem) => {
+          return ordersList.filter((newOrder) => {
+            return newOrder.id === currOrderItem.order.id;
           });
         });
+
+        this.ordersList.forEach((orderItem) => {
+          ordersListNode.appendChild(orderItem.element);
+        });
+
         blockNode.innerHTML = '';
         blockNode.appendChild(ordersListNode);
 
-        return ordersList;
+        return {
+          ordersList: ordersList,
+          refresh: () => {
+            this.drawOrdersList(element);
+          },
+          deleteOrder: deleteOrder
+        };
       });
     }
-
   }
 
   return new SwapsNetwork();
