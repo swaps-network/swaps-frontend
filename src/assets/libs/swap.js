@@ -1,4 +1,4 @@
-const SwapsNetwork = (() => {
+window.SwapsNetwork = (() => {
 
   const ordersStates = {
     CREATED: {
@@ -168,9 +168,7 @@ const SwapsNetwork = (() => {
     }
 
     deleteOrder(orderId) {
-      return SwapsNetwork.call('DELETE_ORDER', {order_id: orderId}).then((response) => {
-        return response;
-      });
+      return SwapsNetwork.call('DELETE_ORDER', {order_id: orderId});
     }
 
     getSwapOrdersList() {
@@ -785,9 +783,7 @@ const SwapsNetwork = (() => {
 
       deleteOrderBtn.onclick = () => {
         deleteOrderBtn.setAttribute('disabled', 'disabled');
-        options.deleteMethod(order.id).then((result) => {
-          options.parent.removeChild(orderItemElement);
-        });
+        options.deleteMethod(order.id);
       };
 
       return orderItemElement;
@@ -824,7 +820,7 @@ const SwapsNetwork = (() => {
         this.ordersList = this.ordersList.filter((currOrderItem) => {
           return ordersList.filter((newOrder) => {
             return newOrder.id === currOrderItem.order.id;
-          });
+          }).length;
         });
 
         this.ordersList.forEach((orderItem) => {
@@ -835,7 +831,7 @@ const SwapsNetwork = (() => {
         blockNode.appendChild(ordersListNode);
 
         return {
-          ordersList: ordersList,
+          ordersList: this.ordersList,
           refresh: () => {
             this.drawOrdersList(element);
           },
@@ -847,4 +843,3 @@ const SwapsNetwork = (() => {
 
   return new SwapsNetwork();
 })();
-
