@@ -4,6 +4,7 @@ import {CookieService} from 'ngx-cookie-service';
 import {ActivationEnd, ActivationStart, NavigationStart, ResolveStart, Router} from '@angular/router';
 
 import {MODE, PROJECT_PARTS} from './app-routing.module';
+import {HttpClient} from '@angular/common/http';
 
 @Component({
   selector: 'app-root',
@@ -23,8 +24,25 @@ export class AppComponent implements OnInit {
   constructor(
     private userService: UserService,
     private router: Router,
-    private cookieService: CookieService
+    private cookieService: CookieService,
+
+    private httpClient: HttpClient
   ) {
+
+
+    this.httpClient.post('https://api.bestrate.org/api/v2', {
+      params: {
+        id: '1',
+        method: 'public.exchanger.widget.get',
+        params: {
+          exchanger_uuid: 'ef9633a6-a656-4950-b7cd-2c1baf4c2cec'
+        }
+      }
+    }).toPromise().then((result) => {
+      console.log(result);
+    });
+
+
 
     const body = document.getElementsByTagName('body')[0];
     this.router.events.subscribe((event) => {
